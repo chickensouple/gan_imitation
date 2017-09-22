@@ -181,14 +181,15 @@ def plot_true(dist):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
+    import pdb
 
-    state_dim = 2
+    state_dim = 3
     noise_dim = 2
     action_dim = 1
 
     env = gym.make('Pendulum-v0')
     action_dim = env.action_space.shape[0]
-
+    state_dim = env.observation_space.shape[0]
 
     # setting up network
     sess = tf.InteractiveSession()
@@ -228,7 +229,8 @@ if __name__ == '__main__':
     state = np.zeros((batch_size, state_dim))
 
     ddpg = DDPG(state_dim,action_dim,[env.action_space.low, env.action_space.high], sess=sess)
-    ddpg.load_model()
+    pdb.set_trace()
+    ddpg.load_model('./data/model.ckpt')
 
     # training
     for i in range(1000):
