@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 import gym
 from DDPG import DDPG
-
+import time
 
 class ConditionalGAN(object):
     def __init__(self, state_dim, noise_dim, action_dim, sess):
@@ -33,7 +33,7 @@ class ConditionalGAN(object):
 
         eps = 1e-2
         self.discr_loss = -tf.reduce_mean(tf.log(self.discr_dist + eps) + tf.log(1.0 - self.discr_gen + eps))
-        self.gen_loss = -tf.reduce_mean(tf.log(1.0 - self.discr_gen + eps))
+        self.gen_loss = -tf.reduce_mean(tf.log(self.discr_gen + eps))
 
         lr = 1e-3
         self.discr_opt = tf.train.AdamOptimizer(lr).minimize(self.discr_loss, var_list=discr_vars)
@@ -50,7 +50,7 @@ class ConditionalGAN(object):
         return loss
 
     def train_gen(self, state, noise):
-        fd = {self.state: state, self.noise: noise, self.action: action}
+        fd = {self.state: state, self.noise: noise}
         loss, _ = self.sess.run([self.gen_loss, self.gen_opt], feed_dict=fd)
         return loss
 
@@ -58,6 +58,7 @@ class ConditionalGAN(object):
         fd = {self.state: state, self.noise: noise}
         samples = self.sess.run(self.gen, feed_dict=fd)
         return samples
+
 
     def get_discr_prob(self, state, action):
         fd = {self.state: state, self.action: action}
@@ -68,12 +69,12 @@ class ConditionalGAN(object):
     def _build_generator(state, noise, action_dim):
         state_layer1 = tf.contrib.layers.fully_connected(state, 
             num_outputs=64, 
-            activation_fn=tf.nn.relu,
+            activation_fn=tf.nn.elu,
             scope='state_layer1')
 
         noise_layer1 = tf.contrib.layers.fully_connected(noise, 
             num_outputs=32, 
-            activation_fn=tf.nn.relu,
+            activation_fn=tf.nn.elu,
             scope='noise_layer1')
 
 
@@ -128,6 +129,7 @@ def get_expert_traj(env, ddpg):
     states = []
     actions = []
 
+    total_reward = 0
     while True:
         # get action
         action = ddpg.actor.policy(state)
@@ -140,7 +142,7 @@ def get_expert_traj(env, ddpg):
         new_state = np.reshape(new_state, (1, ddpg.state_dim))
         total_reward += reward
 
-        states.append(state)
+        states.append(np.squeeze(state))
         actions.append(action)
         
         state = new_state
@@ -179,97 +181,114 @@ def plot_true(dist):
 
 
 
+def rollout_gan(env, gan, render=True, max_iter=1000):
+    state = env.reset()
+
+    total_reward = 0
+    for _ in range(max_iter):
+        noise = np.random.random((1, gan.noise_dim))
+         
+        action = gan.sample_gen(np.reshape(state, (1, 3)), noise)
+        #print "this is action executed" + str(action)
+        if (render):
+            env.render()
+            time.sleep(0.01)
+        [state, reward, done, info] = env.step(action)
+        
+        total_reward += reward
+
+        if done:
+            break
+    return total_reward
+
+
+
+
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    import pdb
+    import argparse
+    import sys
+    import pickle
+    from utils import rollout
 
-    state_dim = 3
     noise_dim = 2
-    action_dim = 1
 
     env = gym.make('Pendulum-v0')
     action_dim = env.action_space.shape[0]
     state_dim = env.observation_space.shape[0]
 
+
+    parser = argparse.ArgumentParser(description="Supervised Training")
+    parser.add_argument('--type', dest='type', action='store',
+        required=True,
+        choices=['train', 'test'],
+        help="type")
+    parser.add_argument('--file', dest='file', action='store',
+        default='data/model.ckpt',
+        help='file to save model in')
+
+
+    args = parser.parse_args(sys.argv[1:])
+
     # setting up network
     sess = tf.InteractiveSession()
-    gan = ConditionalGAN(state_dim, noise_dim, action_dim, sess)
-    tf.global_variables_initializer().run()
-    
-    # true distribution
-    true_dist = GaussianDist(0.6, 1.)
-
-    # pretraining
-    pretrain_batch_size = 500
-    '''
-    for i in range(500):
-        samples = np.array([true_dist.sample(pretrain_batch_size)]).T
-
-        hist, bin_edges = np.histogram(samples, density=True)
-        action = np.array([(bin_edges[:-1] + bin_edges[1:]) * 0.5]).T
-        state = np.zeros((len(action), state_dim))
-
-        if i % 50 == 0:
-            plt.cla()
-            plot_discr(gan)
-            plot_true(true_dist)
-            plt.show(block=False)
-            plt.pause(0.01)
-
-        loss = gan.pretrain(state, action, hist)
-
-        print("Pretrain Iteration " + str(i) + ": " + str(loss))
-
-    # plot_discr(gan)
-    # plt.show()
-
-    # exit()
-    '''
-    batch_size = 128
-    state = np.zeros((batch_size, state_dim))
 
     ddpg = DDPG(state_dim,action_dim,[env.action_space.low, env.action_space.high], sess=sess)
-    pdb.set_trace()
-    ddpg.load_model('./data/model.ckpt')
+    gan = ConditionalGAN(state_dim, noise_dim, action_dim, sess)
+    tf.global_variables_initializer().run()
 
-    # training
-    for i in range(1000):
+    if args.type == 'train':
+        get_state = lambda x: x
+        for i in range(10000):
+            total_reward = ddpg.update(env, get_state)
+            print("Iteration " + str(i) + " reward: " + str(total_reward))
+            if i % 20 == 0:
+                [_, _, rewards] = rollout(env, ddpg.curr_policy(), get_state, render=True)
+                total_reward = np.sum(np.array(rewards))
+                print("Test reward: " + str(total_reward))
 
-        
-        ddpg_states, ddpg_act = get_expert_traj(env, ddpg)
+            if i % 50 == 0:
+                ddpg.save_model(args.file)
 
-        pdb.set_trace()
+        policy = ddpg.curr_policy()
+        rollout(env, policy, get_state, render=True)
+        ddpg.save_model(args.file)
+    elif args.type == 'test':
+        ddpg.load_model(args.file)
+
+        # training
+        for i in range(1000):
+            ddpg_states, ddpg_act = get_expert_traj(env, ddpg)
+            batch_size = len(ddpg_states)
+            ddpg_states = np.array(ddpg_states)
+            ddpg_act = np.array(ddpg_act)
+
+            noise = np.random.random((batch_size, noise_dim))
+
+            for j in range(10):
+                disc_loss = gan.train_discr(ddpg_states, noise, ddpg_act)
+
+            noise = np.random.random((batch_size, noise_dim))
+            gen_loss = gan.train_gen(ddpg_states, noise)
+
+            print("Iteration gan_loss " + str(i) + ": " + str(gen_loss))
+            print("Iteration disc_loss" + str(i) + ": " + str(disc_loss))
+            
+
+            # merged = tf.summary.merge_all()
+
+            # train_writer = tf.summary.FileWriter(FLAGS.summaries_dir + '/train',
+            #                           sess.graph)
+
+            # tf.summary.scalar('gen_loss', gen_loss)
+            # tf.summary.scalar('disc_loss', disc_loss)
+
+            #testing####
+            if i % 50 == 0:
+                reward = rollout_gan(env, gan)
+                print("testing reward: " + str(reward))
 
 
-        noise = np.random.random((batch_size, noise_dim))
-        action = np.array([true_dist.sample(batch_size)]).T
-
-        for j in range(10):
-            gan.train_discr(state, noise, action)
-
-        noise = np.random.random((batch_size, noise_dim))
-        gen_loss = gan.train_gen(state, noise)
-
-        print("Iteration " + str(i) + ": " + str(gen_loss))
-
-        if i % 50 == 0:
-            plt.cla()
-            plot_discr(gan)
-            plot_true(true_dist)
-            plot_gen(gan)
-            plt.legend()
-            plt.show(block=False)
-            plt.pause(0.1)
-
-    state = np.zeros((num_samples, state_dim))
-    noise = np.random.random((num_samples, noise_dim))
-    final_samples = gan.sample_gen(state, noise)
-    n, bins, patches = plt.hist(final_samples, alpha=0.5, label='trained')
-
-    plt.cla()
-    true_samples = true_dist.sample(num_samples)
-    n, bins, patches = plt.hist(true_samples, alpha=0.5, label='true')
-
-    plt.legend()
-    plt.show()
+        plt.legend()
+        plt.show()
 

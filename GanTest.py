@@ -28,9 +28,9 @@ class ConditionalGAN(object):
         self.sloss = tf.reduce_mean(tf.square(self.target_prob - tf.squeeze(self.discr_dist)))
         self.sopt = tf.train.AdamOptimizer(1e-2).minimize(self.sloss)
 
-        eps = 1e-2
-        self.discr_loss = tf.reduce_mean(tf.log(self.discr_dist + eps) + tf.log(1.0 - self.discr_gen + eps))
-        self.gen_loss = tf.reduce_mean(tf.log(1.0 - self.discr_gen + eps))
+        eps = 1e-4
+        self.discr_loss = -tf.reduce_mean(tf.log(self.discr_dist + eps) + tf.log(1.0 - self.discr_gen + eps))
+        self.gen_loss = -tf.reduce_mean(tf.log(self.discr_gen + eps))
 
         lr = 1e-3
         self.discr_opt = tf.train.AdamOptimizer(lr).minimize(self.discr_loss, var_list=discr_vars)
@@ -47,7 +47,7 @@ class ConditionalGAN(object):
         return loss
 
     def train_gen(self, state, noise):
-        fd = {self.state: state, self.noise: noise, self.action: action}
+        fd = {self.state: state, self.noise: noise}
         loss, _ = self.sess.run([self.gen_loss, self.gen_opt], feed_dict=fd)
         return loss
 
@@ -147,7 +147,7 @@ def plot_true(dist):
     plt.scatter(x, y, label='true')
 
 
-def stratified_sample(size, range=[0, 1]):
+def stratified_sample(size, range=[-1., 1.]):
     col = np.linspace(range[0], range[1], size[0])
     
     samples = np.tile(col, [size[1], 1]).T
@@ -195,13 +195,13 @@ if __name__ == '__main__':
     state = np.zeros((batch_size, state_dim))
 
     # training
-    for i in range(2000):
+    for i in range(5000):
         # noise = np.random.random((batch_size, noise_dim))
         noise = stratified_sample((batch_size, noise_dim))
 
         action = np.array([true_dist.sample(batch_size)]).T
 
-        for j in range(10):
+        for j in range(1):
             gan.train_discr(state, noise, action)
 
         noise = stratified_sample((batch_size, noise_dim))
