@@ -342,12 +342,14 @@ if __name__ == '__main__':
     import argparse
     import sys
     import pickle
+    from tqdm import tqdm
+
 
 
     parser = argparse.ArgumentParser(description="Supervised Training")
     parser.add_argument('--type', dest='type', action='store',
         required=True,
-        choices=['train', 'test'],
+        choices=['train', 'test', 'gen_samples'],
         help="type")
     parser.add_argument('--file', dest='file', action='store',
         default='/tmp/model.ckpt',
@@ -356,14 +358,14 @@ if __name__ == '__main__':
 
     args = parser.parse_args(sys.argv[1:])
 
+    env = gym.make('Pendulum-v0')
+    action_dim = env.action_space.shape[0]
+    state_dim = env.observation_space.shape[0]
+
+    ddpg = DDPG(state_dim, action_dim, [env.action_space.low, env.action_space.high])
+
 
     if args.type == 'train':
-        env = gym.make('Pendulum-v0')
-        action_dim = env.action_space.shape[0]
-        state_dim = env.observation_space.shape[0]
-
-
-        ddpg = DDPG(state_dim, action_dim, [env.action_space.low, env.action_space.high])
 
         get_state = lambda x: x
         for i in range(10000):
@@ -380,18 +382,32 @@ if __name__ == '__main__':
         policy = ddpg.curr_policy()
         rollout(env, policy, get_state, render=True)
         ddpg.save_model(args.file)
-    if args.type == 'test':
-        env = gym.make('Pendulum-v0')
-        action_dim = env.action_space.shape[0]
-        state_dim = env.observation_space.shape[0]
-
-
-        ddpg = DDPG(state_dim, action_dim, [env.action_space.low, env.action_space.high])
-
+    elif args.type == 'test':
         ddpg.load_model(args.file)
         get_state = lambda x: x
         for i in range(20):
             [_, _, rewards] = rollout(env, ddpg.curr_policy(), get_state, render=True)
             total_reward = np.sum(np.array(rewards))
             print("Test reward: " + str(total_reward))
+    elif args.type == 'gen_samples':
+        ddpg.load_model(args.file)
+
+        get_state = lambda x: x
+
+        states_list = []
+        action_list = []
+        for i in tqdm(range(1000)):
+            states, actions, _ = rollout(env, ddpg.curr_policy(), get_state, render=False)
+            states_list.extend(states)
+            action_list.extend(actions)
+
+        states_list = np.array(states_list)
+        action_list = np.array(action_list)
+
+        num_samples = len(states_list)
+        states_list = np.reshape(states_list, (num_samples, state_dim))
+        action_list = np.reshape(action_list, (num_samples, action_dim))
+
+        data = {'states': states_list, 'actions': action_list}
+        pickle.dump(data, open("data/data.p", "wb" ))
 

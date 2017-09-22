@@ -1,7 +1,6 @@
 import numpy as np
 import tensorflow as tf
 import gym
-from DDPG import DDPG
 import time
 
 class ConditionalGAN(object):
@@ -118,6 +117,16 @@ class ConditionalGAN(object):
             scope='prob')
         return prob
 
+    def save_model(self, filename='/tmp/model.ckpt'):
+        saver = tf.train.Saver()
+        save_path = saver.save(self.sess, filename)
+        print("Model saved in file: %s" % filename)
+
+    def load_model(self, filename='/tmp/model.ckpt'):
+        saver = tf.train.Saver()
+        saver.restore(self.sess, filename)
+        print("Model loaded from file: %s" % filename)
+
 class GaussianDist(object):
     def __init__(self, mean, var):
         self.mean = mean
@@ -215,7 +224,7 @@ if __name__ == '__main__':
     import pickle
     from utils import rollout
 
-    noise_dim = 2
+    noise_dim = 10
 
     env = gym.make('Pendulum-v0')
     action_dim = env.action_space.shape[0]
@@ -237,58 +246,66 @@ if __name__ == '__main__':
     # setting up network
     sess = tf.InteractiveSession()
 
+    # read in expert data
+    expert_data = pickle.load(open('data/data.p', 'rb'))
+    num_expert_data = len(expert_data['states'])
+
     action_range = [env.action_space.low, env.action_space.high]
-    ddpg = DDPG(state_dim,action_dim, action_range, sess=sess)
     gan = ConditionalGAN(state_dim, noise_dim, action_dim, action_range, sess)
     tf.global_variables_initializer().run()
 
+    batch_size = 512
     if args.type == 'train':
-        get_state = lambda x: x
-        for i in range(10000):
-            total_reward = ddpg.update(env, get_state)
-            print("Iteration " + str(i) + " reward: " + str(total_reward))
-            if i % 20 == 0:
-                [_, _, rewards] = rollout(env, ddpg.curr_policy(), get_state, render=True)
-                total_reward = np.sum(np.array(rewards))
-                print("Test reward: " + str(total_reward))
-
-            if i % 50 == 0:
-                ddpg.save_model(args.file)
-
-        policy = ddpg.curr_policy()
-        rollout(env, policy, get_state, render=True)
-        ddpg.save_model(args.file)
-    elif args.type == 'test':
-        ddpg.load_model(args.file)
-
         # training
         for i in range(100000):
-            ddpg_states, ddpg_act = get_expert_traj(env, ddpg)
-            batch_size = len(ddpg_states)
-            ddpg_states = np.array(ddpg_states)
-            ddpg_act = np.array(ddpg_act)
+            data_idx = np.random.randint(num_expert_data, size=batch_size)
+
+            expert_states = expert_data['states'][data_idx, :]
+            expert_actions = expert_data['actions'][data_idx, :]
 
             noise = np.random.random((batch_size, noise_dim))
-
             for j in range(10):
-                disc_loss = gan.train_discr(ddpg_states, noise, ddpg_act)
+                disc_loss = gan.train_discr(expert_states, noise, expert_actions)
 
             noise = np.random.random((batch_size, noise_dim))
-            gen_loss = gan.train_gen(ddpg_states, noise)
+            gen_loss = gan.train_gen(expert_states, noise)
 
             print("Iteration gan_loss " + str(i) + ": " + str(gen_loss))
             print("Iteration disc_loss" + str(i) + ": " + str(disc_loss))
             
-
             #testing####
             if i % 50 == 0:
                 reward = rollout_gan(env, gan)
                 print("testing reward: " + str(reward))
 
             if i % 500 == 0:
-                ddpg.save_model(args.file)
+                gan.save_model(args.file)
 
 
-        plt.legend()
-        plt.show()
+        #     batch_size = len(ddpg_states)
+        #     ddpg_states = np.array(ddpg_states)
+        #     ddpg_act = np.array(ddpg_act)
+
+
+        #     for j in range(10):
+        #         disc_loss = gan.train_discr(ddpg_states, noise, ddpg_act)
+
+        #     noise = np.random.random((batch_size, noise_dim))
+        #     gen_loss = gan.train_gen(ddpg_states, noise)
+
+        #     print("Iteration gan_loss " + str(i) + ": " + str(gen_loss))
+        #     print("Iteration disc_loss" + str(i) + ": " + str(disc_loss))
+            
+
+        #     #testing####
+        #     if i % 50 == 0:
+        #         reward = rollout_gan(env, gan)
+        #         print("testing reward: " + str(reward))
+
+        #     if i % 500 == 0:
+        #         ddpg.save_model(args.file)
+
+
+        # plt.legend()
+        # plt.show()
 

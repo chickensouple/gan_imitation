@@ -152,8 +152,8 @@ def rollout(env, policy, get_state, max_iter=10000, render=False):
 		state = get_state(obs)
 		action = policy(state)
 
-		actions.append(action)
-		states.append(state)
+		actions.append(np.squeeze(action))
+		states.append(np.squeeze(state))
 
 		if (render):
 			env.render()
