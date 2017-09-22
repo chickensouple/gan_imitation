@@ -5,10 +5,11 @@ from DDPG import DDPG
 import time
 
 class ConditionalGAN(object):
-    def __init__(self, state_dim, noise_dim, action_dim, sess):
+    def __init__(self, state_dim, noise_dim, action_dim, action_range, sess):
         self.state_dim = state_dim
         self.noise_dim = noise_dim
         self.action_dim = action_dim
+        self.action_range = action_range
         self.sess = sess
 
         self.state = tf.placeholder(tf.float32, [None, state_dim])
@@ -16,7 +17,7 @@ class ConditionalGAN(object):
         self.action = tf.placeholder(tf.float32, [None, action_dim])
 
         with tf.variable_scope('gen'):
-            self.gen = ConditionalGAN._build_generator(self.state, self.noise, action_dim)
+            self.gen = ConditionalGAN._build_generator(self.state, self.noise, action_dim, self.action_range)
 
         with tf.variable_scope('discr') as scope:
             self.discr_gen = ConditionalGAN._build_discriminator(self.state, self.gen)
@@ -66,7 +67,7 @@ class ConditionalGAN(object):
         return probs
 
     @staticmethod
-    def _build_generator(state, noise, action_dim):
+    def _build_generator(state, noise, action_dim, action_range):
         state_layer1 = tf.contrib.layers.fully_connected(state, 
             num_outputs=64, 
             activation_fn=tf.nn.elu,
@@ -88,6 +89,9 @@ class ConditionalGAN(object):
             num_outputs=action_dim,
             activation_fn=tf.nn.sigmoid,
             scope='actions')
+
+        output = output * (action_range[1] - action_range[0]) + action_range[0]
+        
         return output
 
     @staticmethod
@@ -233,8 +237,9 @@ if __name__ == '__main__':
     # setting up network
     sess = tf.InteractiveSession()
 
-    ddpg = DDPG(state_dim,action_dim,[env.action_space.low, env.action_space.high], sess=sess)
-    gan = ConditionalGAN(state_dim, noise_dim, action_dim, sess)
+    action_range = [env.action_space.low, env.action_space.high]
+    ddpg = DDPG(state_dim,action_dim, action_range, sess=sess)
+    gan = ConditionalGAN(state_dim, noise_dim, action_dim, action_range, sess)
     tf.global_variables_initializer().run()
 
     if args.type == 'train':
@@ -257,7 +262,7 @@ if __name__ == '__main__':
         ddpg.load_model(args.file)
 
         # training
-        for i in range(1000):
+        for i in range(100000):
             ddpg_states, ddpg_act = get_expert_traj(env, ddpg)
             batch_size = len(ddpg_states)
             ddpg_states = np.array(ddpg_states)
@@ -275,18 +280,13 @@ if __name__ == '__main__':
             print("Iteration disc_loss" + str(i) + ": " + str(disc_loss))
             
 
-            # merged = tf.summary.merge_all()
-
-            # train_writer = tf.summary.FileWriter(FLAGS.summaries_dir + '/train',
-            #                           sess.graph)
-
-            # tf.summary.scalar('gen_loss', gen_loss)
-            # tf.summary.scalar('disc_loss', disc_loss)
-
             #testing####
             if i % 50 == 0:
                 reward = rollout_gan(env, gan)
                 print("testing reward: " + str(reward))
+
+            if i % 500 == 0:
+                ddpg.save_model(args.file)
 
 
         plt.legend()
