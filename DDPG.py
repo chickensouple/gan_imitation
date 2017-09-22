@@ -326,28 +326,16 @@ class DDPG(object):
                 self.critic.update_target_model()
 
             if done:
-                # test_states = np.array([[-1, 0, 0.],
-                #     [0, 1., 0.],
-                #     [0, -1., 0]])
-                # test_actions = self.actor.policy(test_states)
-                # print "test actions: ", test_actions.T
                 break
 
 
             self.train_idx += 1
-
-        # states = np.array([[-1, 0, 0.]])
-        # actions = np.array([[0.]])
-        # fd = {self.critic.state_inputs: states, self.critic.action_inputs: actions}
-        # q_vals = self.sess.run(self.critic.q_vals_out, feed_dict=fd)
-        # print "q_val: ", q_vals
 
         return total_reward
 
         
 
 if __name__ == '__main__':
-    from TestEnv import single_test
     from utils import rollout
     import gym
 
@@ -361,6 +349,9 @@ if __name__ == '__main__':
         required=True,
         choices=['train', 'test'],
         help="type")
+    parser.add_argument('--file', dest='file', action='store',
+        default='/tmp/model.ckpt',
+        help='file to save model in')
 
 
     args = parser.parse_args(sys.argv[1:])
@@ -384,11 +375,11 @@ if __name__ == '__main__':
                 print("Test reward: " + str(total_reward))
 
             if i % 100 == 0:
-                ddpg.save_model()
+                ddpg.save_model(args.file)
 
         policy = ddpg.curr_policy()
         rollout(env, policy, get_state, render=True)
-        ddpg.save_model()
+        ddpg.save_model(args.file)
     if args.type == 'test':
         env = gym.make('Pendulum-v0')
         action_dim = env.action_space.shape[0]
@@ -397,7 +388,7 @@ if __name__ == '__main__':
 
         ddpg = DDPG(state_dim, action_dim, [env.action_space.low, env.action_space.high])
 
-        ddpg.load_model()
+        ddpg.load_model(args.file)
         get_state = lambda x: x
         for i in range(20):
             [_, _, rewards] = rollout(env, ddpg.curr_policy(), get_state, render=True)
