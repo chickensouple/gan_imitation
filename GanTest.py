@@ -126,13 +126,27 @@ def plot_discr(gan):
     state = np.zeros((num, gan.state_dim))
     x = np.array([np.linspace(-3, 3, num)]).T
     probs = gan.get_discr_prob(state, x)
-    plt.scatter(x, probs)
+    plt.scatter(x, probs, label='discr')
+
+
+def plot_gen(gan):
+    num = 200
+    state = np.zeros((num, gan.state_dim))
+    noise = np.random.random((num, gan.noise_dim))
+
+    samples = gan.sample_gen(state, noise)
+
+    hist, bin_edges = np.histogram(samples, density=True)
+    x = np.array((bin_edges[:-1] + bin_edges[1:]) * 0.5)
+
+    plt.scatter(x, hist, label='gen')
 
 def plot_true(dist):
     num = 200
     x = np.array([np.linspace(-3, 3, num)]).T
     y = (1.0 / np.sqrt(2 * np.pi * dist.var)) * np.exp(-np.square(x - dist.mean) / (2 * dist.var))
-    plt.scatter(x, y)
+    plt.scatter(x, y, label='true')
+
 
 
 if __name__ == '__main__':
@@ -148,32 +162,16 @@ if __name__ == '__main__':
     tf.global_variables_initializer().run()
     
     # true distribution
-    true_dist = GaussianDist(0.6, 0.2)
-
-    # get initial distribution
-    num_samples = 1000
-    state = np.zeros((num_samples, state_dim))
-    noise = np.random.random((num_samples, noise_dim))
-    initial_sample = gan.sample_gen(state, noise)
-    # n, bins, patches = plt.hist(initial_sample, range=[-2, 8], alpha=0.5, label='untrained')
-
-    # plot_discr(gan)
+    true_dist = GaussianDist(0.6, 1.)
 
     # pretraining
     pretrain_batch_size = 500
-    state = np.zeros((pretrain_batch_size, state_dim))
-    for i in range(10000):
-        action = np.array([true_dist.sample(pretrain_batch_size)]).T
+    for i in range(500):
+        samples = np.array([true_dist.sample(pretrain_batch_size)]).T
 
-        hist, bin_edges = np.histogram(action, density=True)
-        probs = hist * np.diff(bin_edges)
-        prob_idx = np.argmin(np.maximum(action - bin_edges[:-1], 0), axis=1)
-        targets = probs[prob_idx]
-
-        # plt.scatter(action, targets)
-        # plt.show()
-
-
+        hist, bin_edges = np.histogram(samples, density=True)
+        action = np.array([(bin_edges[:-1] + bin_edges[1:]) * 0.5]).T
+        state = np.zeros((len(action), state_dim))
 
         if i % 50 == 0:
             plt.cla()
@@ -182,14 +180,14 @@ if __name__ == '__main__':
             plt.show(block=False)
             plt.pause(0.01)
 
-        loss = gan.pretrain(state, action, targets)
+        loss = gan.pretrain(state, action, hist)
 
         print("Pretrain Iteration " + str(i) + ": " + str(loss))
 
-    plot_discr(gan)
-    plt.show()
+    # plot_discr(gan)
+    # plt.show()
 
-    exit()
+    # exit()
 
     batch_size = 128
     state = np.zeros((batch_size, state_dim))
@@ -208,9 +206,11 @@ if __name__ == '__main__':
         print("Iteration " + str(i) + ": " + str(gen_loss))
 
         if i % 50 == 0:
-            x = np.array([np.linspace(0, 5, batch_size)]).T
-            probs = gan.get_discr_prob(state, x)
-            plt.scatter(x, probs)
+            plt.cla()
+            plot_discr(gan)
+            plot_true(true_dist)
+            plot_gen(gan)
+            plt.legend()
             plt.show(block=False)
             plt.pause(0.1)
 
