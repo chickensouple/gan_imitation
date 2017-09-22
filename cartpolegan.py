@@ -84,7 +84,17 @@ class ConditionalGAN(object):
             activation_fn=tf.nn.relu,
             scope='layer2')
 
-        output = tf.contrib.layers.fully_connected(layer2,
+        layer3 = tf.contrib.layers.fully_connected(layer2,
+            num_outputs=64,
+            activation_fn=tf.nn.relu,
+            scope='layer3')
+
+        layer4 = tf.contrib.layers.fully_connected(layer3,
+            num_outputs=32,
+            activation_fn=tf.nn.relu,
+            scope='layer4')
+
+        output = tf.contrib.layers.fully_connected(layer4,
             num_outputs=action_dim,
             activation_fn=tf.nn.sigmoid,
             scope='actions')
@@ -224,7 +234,7 @@ if __name__ == '__main__':
     import pickle
     from utils import rollout
 
-    noise_dim = 10
+    noise_dim = 100
 
     env = gym.make('Pendulum-v0')
     action_dim = env.action_space.shape[0]
@@ -243,21 +253,33 @@ if __name__ == '__main__':
 
     args = parser.parse_args(sys.argv[1:])
 
+
+    tf.app.flags.DEFINE_string('logdir',  '/tmp/gan/',  'Directory to store tensorboard summary')
+    config = tf.app.flags.FLAGS
+    summary = tf.Summary()
+    writer = tf.summary.FileWriter(config.logdir, graph=tf.get_default_graph())
+
+
     # setting up network
     sess = tf.InteractiveSession()
-
+        
     # read in expert data
     expert_data = pickle.load(open('data/data.p', 'rb'))
     num_expert_data = len(expert_data['states'])
 
+    
     action_range = [env.action_space.low, env.action_space.high]
     gan = ConditionalGAN(state_dim, noise_dim, action_dim, action_range, sess)
     tf.global_variables_initializer().run()
+    #saver = tf.train.Saver()
+    #writer = tf.summary.FileWriter(config.logdir, sess.graph)
+    writer = tf.summary.FileWriter(config.logdir, graph=tf.get_default_graph())
+
 
     batch_size = 512
     if args.type == 'train':
         # training
-        for i in range(100000):
+        for i in range(1000000):
             data_idx = np.random.randint(num_expert_data, size=batch_size)
 
             expert_states = expert_data['states'][data_idx, :]
@@ -273,8 +295,17 @@ if __name__ == '__main__':
             print("Iteration gan_loss " + str(i) + ": " + str(gen_loss))
             print("Iteration disc_loss" + str(i) + ": " + str(disc_loss))
             
+
+            #summary.value.add(tag='gan_loss', simple_value=float(gen_loss))
+            #summary.value.add(tag='disc_loss', simple_value=float(disc_loss))
+            #merge= tf.summary.merge_all()
+            #train_writer = tf.summary.FileWriter(config.logdir,sess.graph)
+
+            #writer.add_summary(summary, i)
+            #writer.flush()
             #testing####
             if i % 50 == 0:
+                env.reset()
                 reward = rollout_gan(env, gan)
                 print("testing reward: " + str(reward))
 
