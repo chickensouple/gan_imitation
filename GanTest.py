@@ -29,8 +29,8 @@ class ConditionalGAN(object):
         self.sopt = tf.train.AdamOptimizer(1e-2).minimize(self.sloss)
 
         eps = 1e-2
-        self.discr_loss = -tf.reduce_mean(tf.log(self.discr_dist + eps) + tf.log(1.0 - self.discr_gen + eps))
-        self.gen_loss = -tf.reduce_mean(tf.log(1.0 - self.discr_gen + eps))
+        self.discr_loss = tf.reduce_mean(tf.log(self.discr_dist + eps) + tf.log(1.0 - self.discr_gen + eps))
+        self.gen_loss = tf.reduce_mean(tf.log(1.0 - self.discr_gen + eps))
 
         lr = 1e-3
         self.discr_opt = tf.train.AdamOptimizer(lr).minimize(self.discr_loss, var_list=discr_vars)
@@ -128,7 +128,6 @@ def plot_discr(gan):
     probs = gan.get_discr_prob(state, x)
     plt.scatter(x, probs, label='discr')
 
-
 def plot_gen(gan):
     num = 200
     state = np.zeros((num, gan.state_dim))
@@ -148,12 +147,19 @@ def plot_true(dist):
     plt.scatter(x, y, label='true')
 
 
+def stratified_sample(size, range=[0, 1]):
+    col = np.linspace(range[0], range[1], size[0])
+    
+    samples = np.tile(col, [size[1], 1]).T
+    samples += np.random.random(size) / (size[0] * (range[1] - range[0]))
+
+    return samples
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
     state_dim = 2
-    noise_dim = 2
+    noise_dim = 1
     action_dim = 1
 
     # setting up network
@@ -162,11 +168,11 @@ if __name__ == '__main__':
     tf.global_variables_initializer().run()
     
     # true distribution
-    true_dist = GaussianDist(0.6, 1.)
+    true_dist = GaussianDist(1.2, 1.)
 
     # pretraining
     pretrain_batch_size = 500
-    for i in range(500):
+    for i in range(200):
         samples = np.array([true_dist.sample(pretrain_batch_size)]).T
 
         hist, bin_edges = np.histogram(samples, density=True)
@@ -184,23 +190,21 @@ if __name__ == '__main__':
 
         print("Pretrain Iteration " + str(i) + ": " + str(loss))
 
-    # plot_discr(gan)
-    # plt.show()
-
-    # exit()
 
     batch_size = 128
     state = np.zeros((batch_size, state_dim))
 
     # training
-    for i in range(1000):
-        noise = np.random.random((batch_size, noise_dim))
+    for i in range(2000):
+        # noise = np.random.random((batch_size, noise_dim))
+        noise = stratified_sample((batch_size, noise_dim))
+
         action = np.array([true_dist.sample(batch_size)]).T
 
         for j in range(10):
             gan.train_discr(state, noise, action)
 
-        noise = np.random.random((batch_size, noise_dim))
+        noise = stratified_sample((batch_size, noise_dim))
         gen_loss = gan.train_gen(state, noise)
 
         print("Iteration " + str(i) + ": " + str(gen_loss))
@@ -214,14 +218,11 @@ if __name__ == '__main__':
             plt.show(block=False)
             plt.pause(0.1)
 
-    state = np.zeros((num_samples, state_dim))
-    noise = np.random.random((num_samples, noise_dim))
-    final_samples = gan.sample_gen(state, noise)
-    n, bins, patches = plt.hist(final_samples, alpha=0.5, label='trained')
-
     plt.cla()
-    true_samples = true_dist.sample(num_samples)
-    n, bins, patches = plt.hist(true_samples, alpha=0.5, label='true')
+    plot_discr(gan)
+    plot_true(true_dist)
+    plot_gen(gan)
+    plt.legend()
 
     plt.legend()
     plt.show()
