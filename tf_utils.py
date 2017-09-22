@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
+
 def fully_connected(input_var, num_output, activation=None, use_bias=True, var_init=None, batch_norm=False, **kwargs):
     """
     Creates a fully connected neural net layer. the layer will be given as sigma(x*W + b), where W are the weights, b
