@@ -85,7 +85,7 @@ class ConditionalGAN(object):
             scope='layer2')
 
         layer3 = tf.contrib.layers.fully_connected(layer2,
-            num_outputs=64,
+            num_outputs=100,
             activation_fn=tf.nn.relu,
             scope='layer3')
 
@@ -106,18 +106,19 @@ class ConditionalGAN(object):
     @staticmethod
     def _build_discriminator(state, action):
         state_layer1 = tf.contrib.layers.fully_connected(state, 
-            num_outputs=64, 
+            num_outputs=32, 
             activation_fn=tf.nn.relu,
             scope='state_layer1')
 
         action_layer1 = tf.contrib.layers.fully_connected(action, 
-            num_outputs=32, 
+            num_outputs=16, 
             activation_fn=tf.nn.relu,
             scope='action_layer1')
 
         layer1 = tf.concat([action_layer1, state_layer1], 1)
+        layer1 = tf.nn.dropout(layer1,keep_prob = 0.75)
         layer2 = tf.contrib.layers.fully_connected(layer1,
-            num_outputs = 128,
+            num_outputs = 8,
             activation_fn=tf.nn.relu,
             scope='layer2')
 
@@ -211,7 +212,7 @@ def rollout_gan(env, gan, render=True, max_iter=1000):
     for _ in range(max_iter):
         noise = np.random.random((1, gan.noise_dim))
          
-        action = gan.sample_gen(np.reshape(state, (1, 3)), noise)
+        action = gan.sample_gen(np.reshape(state, (1, gan.state_dim)), noise)
         #print "this is action executed" + str(action)
         if (render):
             env.render()
@@ -233,10 +234,14 @@ if __name__ == '__main__':
     import sys
     import pickle
     from utils import rollout
+    import time
 
-    noise_dim = 100
+    noise_dim = 2
 
-    env = gym.make('Pendulum-v0')
+    # env = gym.make('Pendulum-v0')
+    env = gym.make('Walker2d-v1')
+
+
     action_dim = env.action_space.shape[0]
     state_dim = env.observation_space.shape[0]
 
@@ -264,7 +269,13 @@ if __name__ == '__main__':
     sess = tf.InteractiveSession()
         
     # read in expert data
-    expert_data = pickle.load(open('data/data.p', 'rb'))
+    actions = np.load('expert_policies_actions.npy')
+    states = np.load('expert_policies_states.npy')
+    states = states[:, :-1]
+    expert_data = {'states': states, 'actions': actions}
+
+    # expert_data = pickle.load(open('data/data.p', 'rb'))
+    
     num_expert_data = len(expert_data['states'])
 
     
@@ -285,8 +296,13 @@ if __name__ == '__main__':
             expert_states = expert_data['states'][data_idx, :]
             expert_actions = expert_data['actions'][data_idx, :]
 
+            # adding noise to expert samples
+            expert_states += np.random.randn(*expert_states.shape) * 0.01
+            expert_actions += np.random.randn(*expert_actions.shape) * 0.01
+
+
             noise = np.random.random((batch_size, noise_dim))
-            for j in range(10):
+            for j in range(1):
                 disc_loss = gan.train_discr(expert_states, noise, expert_actions)
 
             noise = np.random.random((batch_size, noise_dim))
@@ -296,13 +312,6 @@ if __name__ == '__main__':
             print("Iteration disc_loss" + str(i) + ": " + str(disc_loss))
             
 
-            #summary.value.add(tag='gan_loss', simple_value=float(gen_loss))
-            #summary.value.add(tag='disc_loss', simple_value=float(disc_loss))
-            #merge= tf.summary.merge_all()
-            #train_writer = tf.summary.FileWriter(config.logdir,sess.graph)
-
-            #writer.add_summary(summary, i)
-            #writer.flush()
             #testing####
             if i % 50 == 0:
                 env.reset()
@@ -312,31 +321,4 @@ if __name__ == '__main__':
             if i % 500 == 0:
                 gan.save_model(args.file)
 
-
-        #     batch_size = len(ddpg_states)
-        #     ddpg_states = np.array(ddpg_states)
-        #     ddpg_act = np.array(ddpg_act)
-
-
-        #     for j in range(10):
-        #         disc_loss = gan.train_discr(ddpg_states, noise, ddpg_act)
-
-        #     noise = np.random.random((batch_size, noise_dim))
-        #     gen_loss = gan.train_gen(ddpg_states, noise)
-
-        #     print("Iteration gan_loss " + str(i) + ": " + str(gen_loss))
-        #     print("Iteration disc_loss" + str(i) + ": " + str(disc_loss))
-            
-
-        #     #testing####
-        #     if i % 50 == 0:
-        #         reward = rollout_gan(env, gan)
-        #         print("testing reward: " + str(reward))
-
-        #     if i % 500 == 0:
-        #         ddpg.save_model(args.file)
-
-
-        # plt.legend()
-        # plt.show()
 
